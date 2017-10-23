@@ -5,7 +5,8 @@
   <title>Test</title>
   <style>
     body * {
-        font-family: sans
+        font-family: Roboto;
+        font-size: 24px;
     }
   </style>
 </head>
@@ -13,6 +14,14 @@
     <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column">
         <label id="nameLabel" style="text-align: center"> Enter font name: <div> <input type="text" name="name" id="family"> </div></label>
         <button type="button" id="genButton">Not feeling lucky</button>
+        <div style="display: flex; flex-direction: row">
+            <button type="button" id="btnDownload" style="width:50%;">download</button>
+            <button type="button" id="btnDownloadMin" style="width:50%;">download minified</button>
+        </div>
+    </div>
+
+    <div id="footer" style="position: absolute; bottom:0; left:50%; transform: translate(-50%, 0%);">
+        <p> visit <a href="https://github.com/danziamo/fontometer">GitHub</a></p>
     </div>
 </body>
 <script type ="text/javascript" src="bundle.js"></script>
