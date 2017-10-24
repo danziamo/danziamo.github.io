@@ -88,7 +88,11 @@ module.exports = {
     afe: (params, body) => ({
         type: 'ArrowFunctionExpression', params: params, body: body, id: null, generator: false, expression: true, asyns: false }),
     ls: (label, body) => ({
-        type: 'LabeledStatement', label: label, body: body })
+        type: 'LabeledStatement', label: label, body: body }),
+    ne: (callee, args) => ({
+        type: 'NewExpression', callee: callee, arguments: args || [] }),
+    are: (elements) => ({
+        type: 'ArrayExpression', elements: elements || []})
 };
 
 },{}],3:[function(require,module,exports){
@@ -99,6 +103,16 @@ const esprima = require('esprima')
     , f = require('./ast-descriptor')
     ;
 
+const minifiedOptions = {
+    format: {
+        indent: {
+            style: ''
+        },
+        space: '',
+        newline: ''
+    }
+};
+
 const getVdr = (key, value) => {
     return f.vdr(f.id(key), f.lit(value));
 };
@@ -107,7 +121,9 @@ const initVar = (cst) => {
     return f.vds([
         f.vdr(
             f.id('table'),
-            f.oe(
+            cst.regex
+            ? f.are(cst.table.map(e => f.lit(e)))
+            : f.oe(
                 Object.keys(cst.table).sort( (a, b) => a - 0 - (b - 0)).reduce((acc, e) => {
                     return acc
                         .concat(f.pr(
@@ -120,7 +136,8 @@ const initVar = (cst) => {
         getVdr('baseSize', cst.baseSize),
         getVdr('height', cst.height),
         getVdr('descent', cst.height*cst.magicRatio),
-        getVdr('defaultWidth', cst.default)
+        getVdr('defaultWidth', cst.default),
+        cst.regex && f.vdr(f.id('re'), f.ne(f.id('RegExp'), [f.lit(cst.regex)]))
     ], 'const');
 
 };
@@ -151,40 +168,55 @@ const genGetWidth = () => {
     );
 };
 
+const genMatchWidth = () => {
+    let script = 'const getIndex = (ch) => { const m = ch.match(re);' +
+        'for (let i = 1; m && i < m.length-2; i += 1)' +
+        'if (m[i] !== undefined) return i - 1;};';
+    return esprima.parseScript(script).body[0];
+}
+
 const genWidth = () => {
-    var script = 'const getWidth = (str) => { return str.split("").reduce( (acc, e) => acc + (table[e] || defaultWidth)*ratio, 0); };';
+    var script = 'const getWidth = (str) => { return str.split("").reduce( (acc, e) => acc + (table[getIndex(e)] || defaultWidth)*ratio, 0); };';
     return esprima.parseScript(script).body[0];
 };
 
+const genReturnStatement = (cst) => {
+    return f.rs(
+        f.fe(
+            [f.id('fontSize')],
+            f.bs([
+                f.vds([
+                    f.vdr(f.id('ratio'),
+                        f.be('/', f.id('fontSize'),
+                        f.id('baseSize'))
+                    )
+                ], 'const'),
+                genMatchWidth(),
+                genWidth(),
+                f.rs(
+                    f.oe([
+                        genGetHeight('height'),
+                        genGetDescent('descent'),
+                        genGetWidth('width')
+                    ])
+                )
+            ])
+        )
+    );
+};
 
-
-module.exports = (cst, options) => {
+module.exports = (cst) => {
     const ast = f.p(
         Object.keys(cst).reduce( (acc, e) => {
             return acc.concat(
                 f.es(
                     f.ae('=',
-                        f.me(f.id('exports'), f.lit(e), true),
+                        f.me(f.id('exports'), f.lit(e.match('\'(.*?)\'')[1]), true),
                         f.fe(
                             [],
                             f.bs([
                                 initVar(cst[e]),
-                                f.rs(
-                                    f.fe(
-                                        [f.id('fontSize')],
-                                        f.bs([
-                                            f.vds([f.vdr(f.id('ratio'), f.be('/', f.id('fontSize'), f.id('baseSize')))], 'const'),
-                                            genWidth(),
-                                            f.rs(
-                                                f.oe([
-                                                    genGetHeight('height'),
-                                                    genGetDescent('descent'),
-                                                    genGetWidth('width')
-                                                ])
-                                            )
-                                        ])
-                                    )
-                                )
+                                genReturnStatement(cst[e])
                             ])
                         )
                     )
@@ -192,7 +224,10 @@ module.exports = (cst, options) => {
             );
         }, [])
     );
-    return escodegen.generate(ast, options);
+    return {
+        normal: escodegen.generate(ast, {}),
+        minified: escodegen.generate(ast, minifiedOptions),
+    };
 };
 
 },{"./ast-descriptor":2,"escodegen":12,"esprima":14}],4:[function(require,module,exports){
@@ -337,11 +372,22 @@ const genTable = (tw, bs) => {
         if (chs.w > mst) mst = chs.w;
         if (chs.h < minHeight) minHeight = chs.h;
         if (chs.h > maxHeight) maxHeight = chs.h;
-        res[ch] = chs.w;
+        if (res[chs.w] === undefined)
+            res[chs.w] = '';
+        res[chs.w] += ch;
     }
 
+    res = Object.keys(res).reduce( (acc, e) => {
+        acc[res[e]] = e;
+        return acc;
+    }, {});
+
+    const regex = Object.keys(res).map( e => res[e]);
     return {
-        table: res,
+        regex: Object.keys(res)
+            .reduce( (acc, e) => acc.concat('([' + e + '])'), [])
+            .join('|'),
+        table: Object.keys(res).map( e => res[e]),
         height: maxHeight,
         default: (3 * mst + lst)/4
     };
@@ -368,15 +414,6 @@ const ast = require('./ast-gen.js')
     ;
 
 module.exports = function(document, props) {
-    const minifiedOptions = {
-        format: {
-            indent: {
-                style: ''
-            },
-            space: '',
-            newline: ''
-        }
-    };
     const dom = domUtil(document);
     const cst = Object.keys(props).reduce( (acc, family) => {
         const svgGen = dom.createSvg(family);
@@ -384,26 +421,16 @@ module.exports = function(document, props) {
         const tw = svgGen.tw;
         const baseSize = fu.getBaseSize(tw);
         const gt = fu.genTable(tw, baseSize);
-        const height = gt.height;
-        const table = gt.table;
-        const def = gt.default;
         dom.removeSvg(svg);
 
-        const constants = {
-            baseSize: baseSize,
-            height: height,
-            magicRatio: .35,
-            default: def,
-            table: table
-        };
-
-        acc[family] = constants;
+        acc[family] = Object.assign({baseSize: baseSize, magicRatio: .35}, gt);
         return acc;
 
     }, {});
 
-    dom.attachStrButton('btnDownload', 'fonts', ast(cst, {}));
-    dom.attachStrButton('btnDownloadMin', 'fonts.min', ast(cst, minifiedOptions));
+    const content = ast(cst);
+    dom.attachStrButton('btnDownload', 'fonts', content.normal);
+    dom.attachStrButton('btnDownloadMin', 'fonts.min', content.minified);
 };
 
 },{"./ast-gen.js":3,"./dom-util.js":6,"./font-util.js":7}],9:[function(require,module,exports){
