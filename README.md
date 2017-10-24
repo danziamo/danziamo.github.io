@@ -1,1 +1,1 @@
-[fontomer](fontomer/index.html)
+[fontometer](fontometer/index.html)
