@@ -121,17 +121,7 @@ const initVar = (cst) => {
     return f.vds([
         f.vdr(
             f.id('table'),
-            cst.regex
-            ? f.are(cst.table.map(e => f.lit(e)))
-            : f.oe(
-                Object.keys(cst.table).sort( (a, b) => a - 0 - (b - 0)).reduce((acc, e) => {
-                    return acc
-                        .concat(f.pr(
-                            f.lit(e),
-                            f.lit(cst.table[e])
-                        ));
-                }, [])
-            )
+            f.are(cst.table.map(e => f.lit(e)))
         ),
         getVdr('baseSize', cst.baseSize),
         getVdr('height', cst.height),
@@ -170,25 +160,26 @@ const genGetWidth = () => {
 
 const genMatchWidth = () => {
     let script = 'const getIndex = (ch) => { const m = ch.match(re);' +
-        'for (let i = 1; m && i < m.length-2; i += 1)' +
-        'if (m[i] !== undefined) return i - 1;};';
+        'if (m !== null)' +
+        'for (let i = 0; i < table.length; i += 1)' +
+        'if (m[i + 1] !== undefined) return i;};';
     return esprima.parseScript(script).body[0];
-}
+};
 
 const genWidth = () => {
     var script = 'const getWidth = (str) => { return str.split("").reduce( (acc, e) => acc + (table[getIndex(e)] || defaultWidth)*ratio, 0); };';
     return esprima.parseScript(script).body[0];
 };
 
-const genReturnStatement = (cst) => {
+const genReturnStatement = () => {
     return f.rs(
         f.fe(
             [f.id('fontSize')],
             f.bs([
                 f.vds([
-                    f.vdr(f.id('ratio'),
-                        f.be('/', f.id('fontSize'),
-                        f.id('baseSize'))
+                    f.vdr(
+                        f.id('ratio'),
+                        f.be('/', f.id('fontSize'), f.id('baseSize'))
                     )
                 ], 'const'),
                 genMatchWidth(),
@@ -211,7 +202,7 @@ module.exports = (cst) => {
             return acc.concat(
                 f.es(
                     f.ae('=',
-                        f.me(f.id('exports'), f.lit(e.match('\'(.*?)\'')[1]), true),
+                        f.me(f.id('exports'), f.lit(e.replace(/["' ]/g, '')), true),
                         f.fe(
                             [],
                             f.bs([
@@ -226,7 +217,7 @@ module.exports = (cst) => {
     );
     return {
         normal: escodegen.generate(ast, {}),
-        minified: escodegen.generate(ast, minifiedOptions),
+        minified: escodegen.generate(ast, minifiedOptions)
     };
 };
 
@@ -284,7 +275,7 @@ module.exports = (document) => {
     const createSvg = (family) => {
         const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         const textEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        textEl.style['font-family'] = family || 'Roboto';
+        textEl.style['font-family'] = family.replace(/["']/g, '');
         svg.setAttributeNS(null, 'width', '0');
         svg.setAttributeNS(null, 'height', '0');
         svg.style.visibility = 'hidden';
@@ -337,6 +328,15 @@ module.exports = (document) => {
 },{}],7:[function(require,module,exports){
 'use strict';
 
+const reRegExpChar = /[-\\^$.*+?()[\]{}|]/g;
+const reHasRegExpChar = RegExp(reRegExpChar.source);
+
+const escapeString = (str) => {
+    return (str && reHasRegExpChar.test(str))
+        ? str.replace(reRegExpChar, '\\$&')
+        : str;
+};
+
 const getBaseSize = (tw) => {
     let r = {};
     let k = 0;
@@ -382,10 +382,9 @@ const genTable = (tw, bs) => {
         return acc;
     }, {});
 
-    const regex = Object.keys(res).map( e => res[e]);
     return {
         regex: Object.keys(res)
-            .reduce( (acc, e) => acc.concat('([' + e + '])'), [])
+            .reduce( (acc, e) => acc.concat('([' + escapeString(e) + '])'), [])
             .join('|'),
         table: Object.keys(res).map( e => res[e]),
         height: maxHeight,
@@ -398,6 +397,8 @@ const formatFont = (str) => {
         e.split('&')[0].split(':')[0].replace('+', ' ')
     ).join(', ');
 };
+
+
 
 module.exports = {
     getBaseSize: getBaseSize,
@@ -421,6 +422,7 @@ module.exports = function(document, props) {
         const tw = svgGen.tw;
         const baseSize = fu.getBaseSize(tw);
         const gt = fu.genTable(tw, baseSize);
+
         dom.removeSvg(svg);
 
         acc[family] = Object.assign({baseSize: baseSize, magicRatio: .35}, gt);
